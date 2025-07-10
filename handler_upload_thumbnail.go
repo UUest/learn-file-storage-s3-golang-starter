@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -49,7 +51,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 	mediaType := header.Header.Get("Content-Type")
 	mt, _, err := mime.ParseMediaType(mediaType)
-	fmt.Println(mt)
 	if mt != "image/jpg" && mt != "image/png" {
 		respondWithError(w, http.StatusBadRequest, "Invalid file type for thumbnail, must be jpg or png", err)
 		return
@@ -65,7 +66,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	mediaTypeSplit := strings.Split(mediaType, "/")
 	fileExt := mediaTypeSplit[len(mediaTypeSplit)-1]
-	fileName := filepath.Join(cfg.assetsRoot, videoIDString) + "." + fileExt
+	key := make([]byte, 32)
+	rand.Read(key)
+	fileKey := base64.RawURLEncoding.EncodeToString(key)
+	fileName := filepath.Join(cfg.assetsRoot, fileKey) + "." + fileExt
 	thumbnail, err := os.Create(fileName)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to create thumbnail file", err)
@@ -76,11 +80,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Unable to copy thumbnail to new file", err)
 		return
 	}
-	dataUrl := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoIDString, fileExt)
+	dataUrl := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, fileKey, fileExt)
 	video.ThumbnailURL = &dataUrl
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "error updating video", err)
+		return
 	}
 
 	respondWithJSON(w, http.StatusOK, video)
