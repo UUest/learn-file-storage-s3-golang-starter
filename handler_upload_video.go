@@ -78,6 +78,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	tmp.Seek(0, io.SeekStart)
+	processedVideoName, err := processVideoForFastStart(tmp.Name())
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Error processing video for fast start", err)
+		return
+	}
+	processedVideo, err := os.Open(processedVideoName)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Error opening processed video to upload", err)
+		return
+	}
+	defer os.Remove(processedVideo.Name())
+	defer processedVideo.Close()
 	hexString, err := GenerateRandomHexString(32)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Error creating hex string for file name", err)
@@ -98,7 +110,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	objectParams := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &keyString,
-		Body:        tmp,
+		Body:        processedVideo,
 		ContentType: &mt,
 	}
 	_, err = cfg.s3Client.PutObject(context.TODO(), &objectParams)
@@ -123,12 +135,13 @@ func GenerateRandomHexString(byteLength int) (string, error) {
 }
 
 func getVideoAspectRatio(filepath string) (string, error) {
-	ffmpeg := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filepath)
-	var buf bytes.Buffer
-	ffmpeg.Stdout = &buf
-	err := ffmpeg.Run()
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filepath)
+	var stdOut, stdErr bytes.Buffer
+	cmd.Stdout = &stdOut
+	cmd.Stderr = &stdErr
+	err := cmd.Run()
 	if err != nil {
-		log.Fatalf("Command failed: %v\n", err)
+		log.Fatalf("Command failed: %v\nCommand error: %v\n", err, stdErr.String())
 	}
 	type videoData struct {
 		Streams []struct {
@@ -208,7 +221,7 @@ func getVideoAspectRatio(filepath string) (string, error) {
 		} `json:"streams"`
 	}
 	var vidData videoData
-	err = json.Unmarshal(buf.Bytes(), &vidData)
+	err = json.Unmarshal(stdOut.Bytes(), &vidData)
 	if err != nil {
 		log.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
@@ -238,4 +251,17 @@ func getVideoAspectRatio(filepath string) (string, error) {
 	}
 
 	return aspect, nil
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	outputFilePath := filePath + ".processing"
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputFilePath)
+	var stdOut, stdErr bytes.Buffer
+	cmd.Stdout = &stdOut
+	cmd.Stderr = &stdErr
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("Command failed: %v\nCommand error: %v\n", err, stdErr.String())
+	}
+	return outputFilePath, nil
 }
