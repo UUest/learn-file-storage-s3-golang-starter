@@ -98,12 +98,7 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, video)
 		return
 	}
-	returnVideo, err := cfg.dbVideoToSignedVideo(video)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "error creating presigned url", err)
-		return
-	}
-	respondWithJSON(w, http.StatusOK, returnVideo)
+	respondWithJSON(w, http.StatusOK, video)
 }
 
 func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Request) {
@@ -123,19 +118,5 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 		respondWithError(w, http.StatusInternalServerError, "Couldn't retrieve videos", err)
 		return
 	}
-	returnVideos := make([]database.Video, 0, len(videos))
-	for _, video := range videos {
-		if video.VideoURL == nil || *video.VideoURL == "" {
-			// Either append as-is, or skip
-			returnVideos = append(returnVideos, video)
-			continue
-		}
-		v, err := cfg.dbVideoToSignedVideo(video)
-		if err != nil {
-			respondWithError(w, http.StatusBadRequest, "error creating presigned url for video", err)
-			return
-		}
-		returnVideos = append(returnVideos, v)
-	}
-	respondWithJSON(w, http.StatusOK, returnVideos)
+	respondWithJSON(w, http.StatusOK, videos)
 }
